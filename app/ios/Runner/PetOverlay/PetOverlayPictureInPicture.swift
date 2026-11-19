@@ -18,7 +18,9 @@ final class PetOverlayVideoView: UIView {
 @MainActor
 @available(iOS 15.0, *)
 final class PetOverlayPictureInPicture: NSObject,
-  AVPictureInPictureControllerDelegate, AVPictureInPictureSampleBufferPlaybackDelegate, PetOverlayPipControlling {
+  @preconcurrency AVPictureInPictureControllerDelegate,
+  @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate,
+  PetOverlayPipControlling {
   let sourceView = PetOverlayVideoView()
   var onChange: (() -> Void)?
   var onRecoveryPossible: (() -> Void)?

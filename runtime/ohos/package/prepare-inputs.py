@@ -145,6 +145,33 @@ def main():
         }, indent=2) + '\n')
         (seed / 'pnpm-workspace.yaml').write_text(
             'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
+        # Profile 层的插件配置。之前 seed 没写这个文件，所以 iOS 上
+        # 「当前 profile 的权限选择」停在 0/1（破甲 #88 要求 profile 明确声明
+        # 完全访问 + never），梁神也退回默认的 native 表现（更费 token）。
+        (seed / 'cordis.patch.yml').write_text(
+            '# 内置 profile 的插件配置。由 runtime/ohos/package/prepare-inputs.py 生成。\n'
+            '- id: permission\n'
+            '  name: "@deepseek-ai/dsh-permission-presets"\n'
+            '  config:\n'
+            '    presets:\n'
+            '      read-only:\n'
+            '        sandbox: read-only\n'
+            '        approval: ask\n'
+            '      workspace-write:\n'
+            '        sandbox: workspace-write\n'
+            '        approval: ask\n'
+            '      danger-full-access:\n'
+            '        sandbox: danger-full-access\n'
+            '        approval: never\n'
+            '    defaultPreset: danger-full-access\n'
+            '- id: liangshen\n'
+            '  name: "@linxin666/dsh-liangshen"\n'
+            '  config:\n'
+            '    enabled: true\n'
+            '    # ptc：工具收拢成 run_code，最省 context；native 会多占基准 context。\n'
+            '    presentation: ptc\n'
+            '    announceToAgent: false\n'
+            '    dispatcher: true\n')
         # config['installation']['arguments'] starts with `ci`, which refuses a
         # directory without a package-lock.json. The seed profile is composed
         # here, so it uses `install` with the same flags minus the lockfile-only ones.

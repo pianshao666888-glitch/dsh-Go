@@ -110,6 +110,70 @@ jobs:
             exit 1
           fi
 
+      - name: 降级 framework 到 iOS 14
+        run: |
+          set -euo pipefail
+          APP="$(find app/build/ios/iphoneos -maxdepth 1 -name '*.app' -type d | head -n1)"
+          echo "目标: $APP"
+          MINOS=14.0
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "SDK $SDK，降到 $MINOS"
+
+          # dyld 看的是 Mach-O 的 LC_BUILD_VERSION minos，不是 Info.plist。
+          # 两层都改，否则装得上但一启动就被拒。
+          changed=0
+          for fw in "$APP"/Frameworks/*.framework; do
+            [ -d "$fw" ] || continue
+            exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist" 2>/dev/null || basename "$fw" .framework)"
+            bin="$fw/$exe"
+            [ -f "$bin" ] || continue
+            file -b "$bin" | grep -q Mach-O || continue
+
+            before="$(otool -l "$bin" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+            # Info.plist
+            /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion $MINOS" "$fw/Info.plist" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string $MINOS" "$fw/Info.plist" 2>/dev/null || true
+            # Mach-O
+            if vtool -set-build-version ios "$MINOS" "$SDK" -replace -output "$bin.tmp" "$bin" 2>/dev/null; then
+              mv "$bin.tmp" "$bin"
+              after="$(otool -l "$bin" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+              echo "  $exe: $before → $after"
+              changed=$((changed+1))
+            else
+              echo "  ::warning::$exe 改 minos 失败（vtool 不可用？）"
+            fi
+            rm -f "$bin.tmp"
+          done
+
+          # 主二进制同样要降（它自己也有 LC_BUILD_VERSION）
+          MAIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          if [ -f "$MAIN" ]; then
+            before="$(otool -l "$MAIN" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+            vtool -set-build-version ios "$MINOS" "$SDK" -replace -output "$MAIN.tmp" "$MAIN" 2>/dev/null && mv "$MAIN.tmp" "$MAIN" || true
+            after="$(otool -l "$MAIN" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+            echo "  主二进制: $before → $after"
+          fi
+          echo "共处理 $changed 个 framework"
+
+      - name: 验证没有残留的 15.0
+        run: |
+          set -euo pipefail
+          APP="$(find app/build/ios/iphoneos -maxdepth 1 -name '*.app' -type d | head -n1)"
+          fail=0
+          for fw in "$APP"/Frameworks/*.framework; do
+            [ -d "$fw" ] || continue
+            exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist" 2>/dev/null || basename "$fw" .framework)"
+            bin="$fw/$exe"
+            [ -f "$bin" ] || continue
+            file -b "$bin" | grep -q Mach-O || continue
+            m="$(otool -l "$bin" | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+            case "$m" in
+              1[5-9].*|2*) echo "::error::$exe 的 minos 仍是 $m"; fail=1 ;;
+              *) echo "  ✓ $exe minos=$m" ;;
+            esac
+          done
+          exit $fail
+
       - name: 打包 IPA
         run: |
           set -euo pipefail

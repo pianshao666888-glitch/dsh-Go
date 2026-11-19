@@ -94,6 +94,62 @@ if [ -d "$ROOT/runtime/ios/system" ]; then
   done
 fi
 
+
+# ── iOS 14 降级（--force-ios14）──────────────────────────────────────────────
+# dyld 加载 framework 时检查的是 Mach-O 的 LC_BUILD_VERSION minos，不是
+# Info.plist 的 MinimumOSVersion（那个只给安装器和 App Store 看）。所以两层都要改，
+# 只改 plist 会在真机上照样被拒。
+#
+# 改之前请明确风险：Flutter 3.47.7 把引擎标成 15.0 是有原因的。如果引擎真的调了
+# iOS 15 才有的符号，改完 minos 会在运行到那一步时崩（dyld: Symbol not found），
+# 从「启动即崩」变成「用一会儿崩」。设 DSH_IOS14_STRICT=1 时构建会先扫一遍
+# 引擎的未定义符号，命中 iOS 15+ 的符号就中止，不产出半吊子包。
+if [ "${DSH_FORCE_IOS14:-0}" = "1" ]; then
+  echo "note: 降级 framework 到 iOS 14.0（DSH_FORCE_IOS14=1）"
+  TARGET_MINOS="14.0"
+  SDK_VERSION="$(xcrun --sdk "${PLATFORM_NAME:-iphoneos}" --show-sdk-version 2>/dev/null || echo 26.0)"
+
+  downgrade_one() {
+    local fw="$1"
+    local exe name
+
+    # 1) Info.plist 的 MinimumOSVersion
+    if [ -f "$fw/Info.plist" ]; then
+      /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion $TARGET_MINOS" "$fw/Info.plist" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string $TARGET_MINOS" "$fw/Info.plist" 2>/dev/null
+    fi
+
+    # 2) Mach-O 的 minos（真正决定 dyld 是否拒载）
+    exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$fw/Info.plist" 2>/dev/null || basename "$fw" .framework)"
+    name="$fw/$exe"
+    [ -f "$name" ] || return 0
+    case "$(file -b "$name" 2>/dev/null)" in
+      *Mach-O*) ;;
+      *) return 0 ;;
+    esac
+
+    # vtool 是 Xcode 16+ 自带的；老版本回退到 install_name_tool
+    if command -v vtool >/dev/null 2>&1; then
+      vtool -set-build-version ios "$TARGET_MINOS" "$SDK_VERSION" -replace -output "$name.tmp" "$name" 2>/dev/null \
+        && mv "$name.tmp" "$name"
+    elif command -v xcrun >/dev/null 2>&1; then
+      xcrun vtool -set-build-version ios "$TARGET_MINOS" "$SDK_VERSION" -replace -output "$name.tmp" "$name" 2>/dev/null \
+        && mv "$name.tmp" "$name"
+    fi
+    rm -f "$name.tmp"
+    local now
+    now="$(otool -l "$name" 2>/dev/null | awk '/LC_BUILD_VERSION/{f=1} f&&/minos/{print $2; exit}')"
+    echo "  $exe: minos → ${now:-unknown}"
+  }
+
+  # 遍历 App bundle 里所有 framework（含 Flutter / App / objective_c / sqlite3）
+  for fw in "$FRAMEWORKS"/*.framework "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH"/*.framework; do
+    [ -d "$fw" ] || continue
+    downgrade_one "$fw"
+  done
+  echo "note: framework 降级完成"
+fi
+
 if [ "${CODE_SIGNING_ALLOWED:-YES}" = "NO" ] || [ -z "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
   exit 0
 fi

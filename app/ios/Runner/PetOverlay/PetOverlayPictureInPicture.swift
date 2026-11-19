@@ -21,7 +21,12 @@ final class PetOverlayPictureInPicture: NSObject,
   @preconcurrency AVPictureInPictureControllerDelegate,
   @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate,
   PetOverlayPipControlling {
-  let sourceView = PetOverlayVideoView()
+  // 协议 PetOverlayPipControlling 要求 `var sourceView: UIView { get }`。
+  // 直接写 `let sourceView = PetOverlayVideoView()` 会被推断成具体子类，
+  // 不满足协议对精确类型的要求（iOS 14 target 下编译报 does not conform）。
+  // 所以对外暴露 UIView，内部用 video 拿回 PetOverlayVideoView 的特有能力。
+  let sourceView: UIView = PetOverlayVideoView()
+  private var video: PetOverlayVideoView { sourceView as! PetOverlayVideoView }
   var onChange: (() -> Void)?
   var onRecoveryPossible: (() -> Void)?
   var onFailure: ((String) -> Void)?
@@ -93,18 +98,18 @@ final class PetOverlayPictureInPicture: NSObject,
     sourceView.backgroundColor = .black
     sourceView.clipsToBounds = true
     sourceView.layer.cornerRadius = 10
-    sourceView.displayLayer.videoGravity = .resizeAspect
+    video.displayLayer.videoGravity = .resizeAspect
     var base: CMTimebase?
     if CMTimebaseCreateWithSourceClock(allocator: kCFAllocatorDefault,
       sourceClock: CMClockGetHostTimeClock(), timebaseOut: &base) == noErr, let base {
       timebase = base
       CMTimebaseSetTime(base, time: CMClockGetTime(CMClockGetHostTimeClock()))
       CMTimebaseSetRate(base, rate: 1)
-      sourceView.displayLayer.controlTimebase = base
+      video.displayLayer.controlTimebase = base
     }
     guard supported else { return }
     let source = AVPictureInPictureController.ContentSource(
-      sampleBufferDisplayLayer: sourceView.displayLayer, playbackDelegate: self)
+      sampleBufferDisplayLayer: video.displayLayer, playbackDelegate: self)
     let controller = AVPictureInPictureController(contentSource: source)
     controller.delegate = self
     controller.requiresLinearPlayback = true
@@ -194,7 +199,7 @@ final class PetOverlayPictureInPicture: NSObject,
       picture?.stopPictureInPicture()
     } else if !keepInline {
       releaseAudio()
-      sourceView.displayLayer.flushAndRemoveImage()
+      video.displayLayer.flushAndRemoveImage()
     }
     onChange?()
   }
@@ -202,7 +207,7 @@ final class PetOverlayPictureInPicture: NSObject,
   /// Returns false for ordinary display-layer backpressure, keeping the last
   /// picture. Failure to allocate/describe a frame is a reported hard failure.
   func enqueue(_ image: CGImage) throws -> Bool {
-    let layer = sourceView.displayLayer
+    let layer = video.displayLayer
     if layer.status == .failed { layer.flushAndRemoveImage() }
     guard layer.isReadyForMoreMediaData else { return false }
     layer.enqueue(try Self.sampleBuffer(from: image))
@@ -210,7 +215,7 @@ final class PetOverlayPictureInPicture: NSObject,
   }
 
   /// Keeps the animated video out of system captures during phone control.
-  func setCaptureHidden(_ hidden: Bool) { sourceView.displayLayer.preventsCapture = hidden }
+  func setCaptureHidden(_ hidden: Bool) { video.displayLayer.preventsCapture = hidden }
 
   /// Shared by playback and the Apple-SDK capture fixture so that the real
   /// BGRA sample-buffer path, including row orientation, is testable.

@@ -1,0 +1,142 @@
+# 产出未签名 IPA：跑完引擎准备、iSH 编译、Flutter 设备编译后打包 Payload。
+# 不签名（没有证书），拿到后用 Sideloadly / AltStore / TrollStore 自签安装。
+name: iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/ios-ipa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      FLUTTER_VERSION: 3.47.7
+      FLUTTER_SHA256: dd9da574c3168460550117eb0e8dd0313ae934fabf64a82a6d557fff5fd1422e
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 安装 Flutter
+        run: |
+          archive="flutter_macos_arm64_${FLUTTER_VERSION}-stable.zip"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/$archive"
+          echo "$FLUTTER_SHA256  $RUNNER_TEMP/$archive" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/$archive" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: 解析依赖
+        run: |
+          flutter --version
+          python3 app/tool/l10n_merge.py --no-gen
+          cd app
+          flutter pub get --enforce-lockfile
+          flutter gen-l10n
+
+      - name: 准备内嵌引擎
+        run: |
+          log="$RUNNER_TEMP/prepare.log"
+          if ! bash tooling/ios/prepare-engine.sh 2>&1 | tee "$log"; then
+            tail -n 10 "$log" | cut -c1-800 | sed -e 's/%/%25/g' -e 's/^/::error title=prepare-engine::/'
+            exit 1
+          fi
+          ls -la app/ios/Engine
+
+      - name: 安装 iSH 构建工具
+        run: |
+          brew install llvm lld || true
+          python3 -m venv "$RUNNER_TEMP/ish-tools"
+          "$RUNNER_TEMP/ish-tools/bin/pip" install --quiet meson==1.7.2 ninja==1.11.1.4
+          echo "$RUNNER_TEMP/ish-tools/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: 编译 iSH 设备端 framework
+        run: |
+          out="app/ios/Engine/build/iphoneos/guest"
+          log="$RUNNER_TEMP/ish-iphoneos.log"
+          if ! bash tooling/ios/build-guest-addon.sh iphoneos "$out" 2>&1 | tee "$log"; then
+            tail -n 15 "$log" | cut -c1-800 | sed -e 's/%/%25/g' -e 's/^/::error title=iSH build::/'
+            exit 1
+          fi
+          for name in DshGuest DshGuestBridge; do
+            binary="$out/$name.framework/$name"
+            file "$binary"
+            xcrun lipo "$binary" -verify_arch arm64
+          done
+          xcrun nm -gU "$out/DshGuestBridge.framework/DshGuestBridge" | grep 'napi_register_module_v1$'
+
+      - name: 编译 iOS App（未签名）
+        working-directory: app
+        env:
+          # 显式关掉所有 target 的签名。主 target 由 --no-codesign 覆盖，但
+          # CompanionWidget（Widget Extension）这类嵌套 target 仍会去要
+          # DEVELOPMENT_TEAM，必须用这两个变量一起压住。
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
+          EXPANDED_CODE_SIGN_IDENTITY: ""
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/xcode-build.log"
+          if bash ../tooling/ios/build.sh --release --no-codesign -v 2>&1 | tee "$log"; then
+            echo "编译成功"
+          else
+            # Flutter 会把 Xcode 的真实错误压成一句 Team 提示，这里把原始错误捞出来
+            echo "::group::Xcode 真实错误"
+            grep -nE "error:|\*\* BUILD FAILED \*\*|requires a provisioning|CodeSign .* failed|does not support provisioning" "$log" \
+              | head -40 | sed -e 's/%/%25/g' -e 's/^/::error::/'
+            echo "::endgroup::"
+            echo "::group::日志尾部（120 行）"
+            tail -120 "$log" | cut -c1-400
+            echo "::endgroup::"
+            cp "$log" "$RUNNER_TEMP/xcode-build-full.log"
+            exit 1
+          fi
+
+      - name: 打包 IPA
+        run: |
+          set -euo pipefail
+          APP="$(find app/build/ios/iphoneos -maxdepth 1 -name '*.app' -type d | head -n1)"
+          echo "选中: $APP"
+          test -n "$APP"
+          rm -rf out && mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          cd out
+          zip -qry dsh-go-unsigned.ipa Payload
+          ls -lh dsh-go-unsigned.ipa
+          unzip -l dsh-go-unsigned.ipa | head -n 20
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-go-unsigned-ipa
+          path: out/dsh-go-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 失败时留日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-logs
+          path: |
+            ${{ runner.temp }}/*.log
+            app/build/ios/iphoneos/*.app/Info.plist
+          if-no-files-found: ignore

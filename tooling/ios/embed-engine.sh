@@ -70,6 +70,12 @@ cp -R "$BUILT/DshNodeHost.framework" "$FRAMEWORKS/"
 cp -R "$BUILT/DshFlock.framework" "$BUILT/DshRequireBuiltin.framework" "$FRAMEWORKS/"
 cp -R "$GUEST_BUILT/DshGuest.framework" "$GUEST_BUILT/DshGuestBridge.framework" "$FRAMEWORKS/"
 cp "$ENGINE/runtime.zip" "$RESOURCES/dsh-runtime/runtime.zip"
+# The bundled plugin profile (~/.dsh/profiles/web seed). Kept outside runtime.zip
+# because that archive's manifest is byte-validated and rejects unknown paths.
+if [ -d "$ENGINE/seed-profile" ]; then
+  rm -rf "$RESOURCES/dsh-runtime/seed-profile"
+  cp -R "$ENGINE/seed-profile" "$RESOURCES/dsh-runtime/seed-profile"
+fi
 # The phone tools' backend is iOS's own, so it isn't in the archive runtime/ohos composes.
 mkdir -p "$RESOURCES/dsh-runtime/phone"
 for file in actions.mjs bridge.mjs plugin.mjs descriptions.mjs catalog.json; do

@@ -111,7 +111,7 @@ final class IOSPhoneRunner {
     http.setValue("Bearer " + endpoint.token, forHTTPHeaderField: "Authorization")
     http.setValue("application/json", forHTTPHeaderField: "Content-Type")
     http.httpBody = try? JSONSerialization.data(withJSONObject: values)
-    guard let (data, response) = try? await session.data(for: http), permitted(),
+    guard let (data, response) = try? await session.dataCompat(for: http), permitted(),
       (response as? HTTPURLResponse)?.statusCode == 200,
       let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
       result["ok"] as? Bool == true else { return false }
@@ -409,7 +409,7 @@ final class IOSPhoneRunner {
     http.httpBody = body
     do {
       let (data, response) = try await IOSPhoneRPCDispatch.perform(http, permitted: permitted,
-        send: { [session] request in try await session.data(for: request) })
+        send: { [session] request in try await session.dataCompat(for: request) })
       guard permitted() else {
         return .failure("动作结果抵达时原调用已失效；结果不明，请核对屏幕，不要自动重试。")
       }

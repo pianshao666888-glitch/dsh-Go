@@ -1,0 +1,8 @@
+{
+  "advancedEnvTitle": "Advanced access",
+  "advancedEnvDetecting": "Detecting…",
+  "advancedEnvUnsupported": "No advanced access on this device · system read/write may be unavailable",
+  "advancedEnvShell": "Usable shell",
+  "advancedEnvRefresh": "Detect again",
+  "advancedEnvFooter": "Detected once when settings opens. After changing your TrollStore or jailbreak setup, tap Detect again."
+}

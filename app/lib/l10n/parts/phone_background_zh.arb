@@ -22,5 +22,14 @@
   "phonePrivilegedGrantSuiPermission": "先授权 Sui，再授予权限",
   "phonePrivilegedSuggested": "建议",
   "phonePrivilegedRootRiskTitle": "给 DSH Go root 权限？",
-  "phonePrivilegedRootRiskBody": "root 管理器（Magisk、KernelSU 或 APatch）会弹窗问你。允许后，DSH Go 以 root 运行自己的后台服务；只有打开「保持 root 通道」，断开或重启后才会自己再去申请。"
+  "phonePrivilegedRootRiskBody": "root 管理器（Magisk、KernelSU 或 APatch）会弹窗问你。允许后，DSH Go 以 root 运行自己的后台服务；只有打开「保持 root 通道」，断开或重启后才会自己再去申请。",
+  "keepAliveSection": "后台保活",
+  "keepAliveAudio": "静音音频保活",
+  "keepAliveAudioHint": "循环播放不可闻的音频，进后台后不被立刻挂起",
+  "keepAliveLocation": "定位保活",
+  "keepAliveLocationHint": "持续定位维持后台唤醒，精度已降到最低",
+  "keepAliveLocationNeedsAlways": "需要把定位权限改成「始终允许」，只给「使用期间」无法后台保活",
+  "keepAliveFooter": "这不是常驻：内存紧张时系统仍会回收进程。耗电会增加，按需开启。",
+  "keepAliveAudioFailed": "音频保活开启失败",
+  "keepAliveLocationFailed": "定位保活开启失败，请检查定位权限"
 }

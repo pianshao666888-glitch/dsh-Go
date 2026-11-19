@@ -1316,6 +1316,90 @@ def layer_descriptor(stats):
             "tarBytes": stats["tarBytes"], "tarSha256": stats["tarSha256"]}
 
 
+PURGE_TARBALL_DEFAULT = ("https://github.com/kingcharleslzy-ai/dsh-purge/releases/download/"
+                         "v1.7.20/dsh-purge-community-1.7.20.tgz")
+
+
+def cmd_bundle_profile(args):
+    """Write the profile skeleton the app finds at ~/.dsh/profiles/web.
+
+    Only package.json / pnpm-workspace.yaml / cordis.patch.yml are written here;
+    `npm install` fills node_modules afterwards. Bundles are declared in
+    package.json's dsh.profile.bundles so the engine mounts them on first boot.
+    """
+    out = os.path.abspath(args.out)
+    os.makedirs(out, exist_ok=True)
+
+    purge = args.purge_spec or PURGE_TARBALL_DEFAULT
+    deps = {}
+    bundles = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"]
+    if args.with_purge:
+        deps["dsh-purge-community"] = purge
+        bundles.append("dsh-purge-community")
+    if args.liangshen_spec:
+        # Accept either a bare version ("0.4.16") or a full spec
+        # ("@linxin666/dsh-liangshen@0.4.16"); dependencies hold the version only.
+        spec = args.liangshen_spec
+        marker = "@linxin666/dsh-liangshen@"
+        version = spec[len(marker):] if spec.startswith(marker) else spec
+        deps["@linxin666/dsh-liangshen"] = version
+        bundles.append("@linxin666/dsh-liangshen")
+
+    manifest = {
+        "name": "dsh-profile-web",
+        "private": True,
+        "dependencies": deps,
+        "dsh": {"profile": {"bundles": bundles}},
+    }
+    if args.package_manager:
+        manifest["packageManager"] = args.package_manager
+    with open(os.path.join(out, "package.json"), "w") as fh:
+        json.dump(manifest, fh, indent=2)
+        fh.write("\n")
+
+    with open(os.path.join(out, "pnpm-workspace.yaml"), "w") as fh:
+        fh.write("packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n")
+
+    # Exact-version exemptions: the engine refuses a plugin whose peer range the
+    # runtime does not satisfy. This runtime predates what some bundled plugins
+    # declare, so the profile ships the exemptions the user would otherwise have
+    # to grant by hand.
+    exemptions = {}
+    if args.liangshen_spec:
+        lv = args.liangshen_spec
+        m = "@linxin666/dsh-liangshen@"
+        if lv.startswith(m):
+            lv = lv[len(m):]
+        exemptions["@linxin666/dsh-liangshen@" + lv] = [args.dsh_version]
+    if args.with_purge and args.purge_exemption:
+        exemptions[args.purge_exemption] = [args.dsh_version]
+    if exemptions:
+        with open(os.path.join(out, "compatibility.json"), "w") as fh:
+            json.dump(exemptions, fh, indent=2)
+            fh.write("\n")
+
+    # Operator patch layer: full access by default, so the bundled profile
+    # behaves like a prepared one instead of asking for approvals on every call.
+    with open(os.path.join(out, "cordis.patch.yml"), "w") as fh:
+        fh.write(
+            "# Bundled by dsh-go: operator patch layer applied after every bundle layer.\n"
+            "- id: permission\n"
+            "  name: \"@deepseek-ai/dsh-permission-presets\"\n"
+            "  config:\n"
+            "    presets:\n"
+            "      read-only:\n"
+            "        sandbox: read-only\n"
+            "        approval: ask\n"
+            "      workspace-write:\n"
+            "        sandbox: workspace-write\n"
+            "        approval: ask\n"
+            "      danger-full-access:\n"
+            "        sandbox: danger-full-access\n"
+            "        approval: never\n"
+            "    defaultPreset: danger-full-access\n")
+    print(out)
+
+
 def cmd_assemble(args):
     abi = args.abi
     layered = args.base_out is not None or args.engine_out is not None
@@ -1545,6 +1629,13 @@ def cmd_assemble(args):
                  "pnpm", pnpm_drop_reason)
     if args.bridge:
         add_tree(args.bridge, DSH_GO_BRIDGE.lstrip("/"), "bridge", lambda rel, abi, prune: None)
+
+    # Bundled plugin profile: a pre-installed ~/.dsh tree so the app starts with
+    # plugins already in place. Guest DSH_HOME is /root/.dsh (see the launcher
+    # env), so the tree lands exactly where the engine looks. Injected before
+    # the dsh-app overlay, which never writes under root/.
+    if args.preset_home:
+        add_tree(args.preset_home, "root/.dsh", "preset", lambda rel, abi, prune: None)
 
     # 4. dsh-app overlay (wins over everything above)
     for p, e in overlay_entries(runtime_info, with_python=bool(args.python), with_pnpm=bool(args.pnpm_prefix),
@@ -1898,7 +1989,19 @@ def main():
     p.add_argument("--deb", action="append", help="extra .deb to unpack and register (no maintainer scripts)")
     p.add_argument("--python", help="python-build-standalone install_only tarball -> /opt/python")
     p.add_argument("--bridge", help="dsh-go-bridge package dir -> " + DSH_GO_BRIDGE + " (+ overlay row)")
+    p.add_argument("--preset-home", help="pre-installed ~/.dsh tree -> /root/.dsh (bundled plugins)")
     p.set_defaults(fn=cmd_assemble)
+
+    p = sub.add_parser("bundle-profile")
+    p.add_argument("--out", required=True, help="profile directory to write (becomes ~/.dsh/profiles/web)")
+    p.add_argument("--purge-spec", help="npm spec for dsh-purge-community (default: pinned tarball)")
+    p.add_argument("--with-purge", action="store_true", default=True)
+    p.add_argument("--no-purge", dest="with_purge", action="store_false")
+    p.add_argument("--liangshen-spec", default="0.4.16")
+    p.add_argument("--package-manager", default="")
+    p.add_argument("--dsh-version", default="0.2.2-rc.1")
+    p.add_argument("--purge-exemption", default="dsh-purge-community@1.7.20")
+    p.set_defaults(fn=cmd_bundle_profile)
 
     p = sub.add_parser("manifest")
     p.add_argument("--abi", required=True)

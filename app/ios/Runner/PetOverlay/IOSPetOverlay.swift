@@ -13,7 +13,7 @@ final class IOSPetOverlay: NSObject {
   var onTaskResumeConfirmed: ((Int) -> Void)?
   var onKeepingAliveChanged: ((Bool) -> Void)?
 
-  private let picture = PetOverlayPictureInPicture()
+  private let picture: any PetOverlayPipControlling
   private var channel: FlutterMethodChannel?
   private var renderer: PetOverlayFrameRenderer?
   private var state = PetOverlayState()
@@ -111,6 +111,7 @@ final class IOSPetOverlay: NSObject {
   }
 
   private override init() {
+    picture = PetOverlayPipFactory.make()
     super.init()
     let defaults = UserDefaults.standard
     let configuration = Self.configuration(from: defaults)
@@ -344,7 +345,7 @@ final class IOSPetOverlay: NSObject {
     // Keep the visible PiP running, but exclude its animated video and task
     // text from system captures during phone control. Normal pet screenshots
     // remain available after the task ends.
-    picture.sourceView.displayLayer.preventsCapture = policy.task != nil
+    picture.setCaptureHidden(policy.task != nil)
     if policy.enabled, let id = state.packID, let renderer {
       do {
         _ = try renderer.load(packID: id)

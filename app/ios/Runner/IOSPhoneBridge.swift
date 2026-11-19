@@ -186,7 +186,7 @@ final class IOSPhoneBridge: NSObject, URLSessionTaskDelegate {
     request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
-    let (bytes, response) = try await session.data(for: request)
+    let (bytes, response) = try await session.dataCompat(for: request)
     guard bytes.count <= 32768, let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
     return (http.statusCode, bytes)
   }

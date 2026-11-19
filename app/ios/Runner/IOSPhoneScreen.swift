@@ -159,7 +159,7 @@ final class IOSPhoneScreen {
        annotationWillRender: (@Sendable () -> Void)? = nil) {
     self.recognize = recognize
     self.annotationWillRender = annotationWillRender
-    // Darwin's continuous clock includes device sleep on the app's iOS 15
+    // Darwin's continuous clock includes device sleep on the app's iOS 14
     // minimum target. Swift ContinuousClock would require iOS 16.
     self.now = now ?? { IOSPhoneContinuousTime.now() ?? .nan }
   }

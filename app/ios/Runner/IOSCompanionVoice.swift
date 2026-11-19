@@ -673,7 +673,7 @@ final class IOSCompanionFileLoader: IOSCompanionClipLoading {
 }
 
 /// iOS 10+ continuous monotonic time, including device sleep. No iOS 16-only
-/// ContinuousClock and no user-adjustable wall clock on the iOS 15 target.
+/// ContinuousClock and no user-adjustable wall clock on the iOS 14 target.
 private enum IOSCompanionVoiceClock {
   private static let secondsPerTick: Double? = {
     var value = mach_timebase_info_data_t(numer: 0, denom: 0)

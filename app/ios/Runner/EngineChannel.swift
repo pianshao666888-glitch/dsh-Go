@@ -636,6 +636,28 @@ final class EngineChannel: NSObject, FlutterStreamHandler {
 
   private var home: URL { guestRoot.appendingPathComponent("root", isDirectory: true) }
   private var dshHome: URL { home.appendingPathComponent(".dsh", isDirectory: true) }
+
+  /// 把 App 内置的插件 profile 复制进 DSH_HOME（只在首次启动做一次）。
+  ///
+  /// 只在 profiles/web 完全不存在时复制：用户之后自己装的插件、改过的配置
+  /// 不能被这个包覆盖，所以升级 App 也不会重置已有 profile。
+  /// 没带 seed 的包（未启用 --seed-profile 构建）直接跳过。
+  private func seedBundledProfileIfNeeded() {
+    let files = FileManager.default
+    let target = dshHome.appendingPathComponent("profiles/web", isDirectory: true)
+    if files.fileExists(atPath: target.path) { return }
+    guard let seed = Bundle.main.url(
+      forResource: "seed-profile", withExtension: nil, subdirectory: "dsh-runtime") else { return }
+    do {
+      try files.createDirectory(
+        at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try files.copyItem(at: seed, to: target)
+      _ = appendLog("已安装内置插件 profile（dsh-purge 破甲）", stream: "system")
+    } catch {
+      // 播种失败不影响引擎本身；用户仍可在插件页手动安装。
+      _ = appendLog("内置插件 profile 复制失败：" + error.localizedDescription, stream: "system")
+    }
+  }
   private var agentsHome: URL { home.appendingPathComponent(".agents", isDirectory: true) }
   private var workspace: URL { home.appendingPathComponent("workspace", isDirectory: true) }
   private var outputs: URL { workspace.appendingPathComponent("DSH-Go", isDirectory: true) }
@@ -1050,6 +1072,7 @@ final class EngineChannel: NSObject, FlutterStreamHandler {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       }
       try writeInstructions(visualReplies: visualReplies)
+      seedBundledProfileIfNeeded()
       if native == nil { native = try NativeEngine() }
       for (key, value) in environment where key.uppercased().range(of: "KEY|TOKEN|SECRET|PASSWORD", options: .regularExpression) != nil {
         rememberSecret(value)

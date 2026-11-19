@@ -92,7 +92,7 @@ final class IOSPhoneApproval: UIViewController, UIScrollViewDelegate {
       name: UIScene.didActivateNotification, object: nil)
     // On iOS 9+, selector registration does not require manual removal after
     // deallocation: NotificationCenter cleans stale entries on later delivery.
-    // There is no observer block retaining this controller (iOS 15+ target).
+    // There is no observer block retaining this controller (iOS 14+ target).
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
   override func viewDidLoad() {

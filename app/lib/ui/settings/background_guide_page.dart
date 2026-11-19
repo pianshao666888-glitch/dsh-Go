@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
 import '../../runtime/background_net.dart';
+import '../../runtime/keep_alive.dart';
 import '../../runtime/runtime_state.dart';
 import '../../state/android_features.dart';
 import '../../state/app_info.dart';
@@ -188,10 +189,41 @@ class _SuspendedPage extends ConsumerStatefulWidget {
 class _SuspendedPageState extends ConsumerState<_SuspendedPage> {
   late final AppLifecycleListener _lifecycle;
 
+  static const _keepAlive = BackgroundKeepAlive();
+  KeepAliveStatus _keepAliveStatus = const KeepAliveStatus();
+  bool _keepAliveLoaded = false;
+
   @override
   void initState() {
     super.initState();
-    _lifecycle = AppLifecycleListener(onResume: () => ref.invalidate(notifySystemStatusProvider));
+    _lifecycle = AppLifecycleListener(onResume: () {
+      ref.invalidate(notifySystemStatusProvider);
+      unawaited(_refreshKeepAlive());
+    });
+    unawaited(_refreshKeepAlive());
+  }
+
+  Future<void> _refreshKeepAlive() async {
+    final status = await _keepAlive.status();
+    if (!mounted) return;
+    setState(() {
+      _keepAliveStatus = status;
+      _keepAliveLoaded = true;
+    });
+  }
+
+  Future<void> _toggleAudio(bool on) async {
+    final ok = await _keepAlive.setAudio(on);
+    if (!mounted) return;
+    if (!ok && on) showBriefNotice(context, context.l10n.keepAliveAudioFailed);
+    await _refreshKeepAlive();
+  }
+
+  Future<void> _toggleLocation(bool on) async {
+    final ok = await _keepAlive.setLocation(on);
+    if (!mounted) return;
+    if (!ok && on) showBriefNotice(context, context.l10n.keepAliveLocationFailed);
+    await _refreshKeepAlive();
   }
 
   @override
@@ -219,6 +251,29 @@ class _SuspendedPageState extends ConsumerState<_SuspendedPage> {
       title: l10n.pluginsBackgroundTitle,
       subtitle: Text(longTask ? l10n.harmonyBackgroundSubtitleLong : l10n.harmonyBackgroundSubtitle),
       children: [
+        // 后台保活：iOS 没有前台服务，只能靠已声明的 background mode 延缓挂起。
+        SettingsSection(
+          title: l10n.keepAliveSection,
+          footer: Text(l10n.keepAliveFooter),
+          children: [
+            SettingsSwitchTile(
+              key: const ValueKey('keepalive-audio'),
+              title: l10n.keepAliveAudio,
+              subtitle: l10n.keepAliveAudioHint,
+              value: _keepAliveStatus.audio,
+              onChanged: _keepAliveLoaded ? (value) => unawaited(_toggleAudio(value)) : null,
+            ),
+            SettingsSwitchTile(
+              key: const ValueKey('keepalive-location'),
+              title: l10n.keepAliveLocation,
+              subtitle: _keepAliveStatus.locationNeedsAlways
+                  ? l10n.keepAliveLocationNeedsAlways
+                  : l10n.keepAliveLocationHint,
+              value: _keepAliveStatus.location,
+              onChanged: _keepAliveLoaded ? (value) => unawaited(_toggleLocation(value)) : null,
+            ),
+          ],
+        ),
         SettingsSection(
           title: l10n.harmonyBackgroundAway,
           children: [

@@ -77,6 +77,7 @@ fetch "$ADDON_URL" "$ADDON_SHA256" "$WORK/require-builtin.tar.gz"
 
 # Input preparation refuses an existing directory and a path inside the repository.
 "$PYTHON" -I -B "$ROOT/runtime/ohos/package/prepare-inputs.py" --target ohos \
+  --seed-profile \
   --node "$NODE" --npm "$NPM" --cache "$WORK/npm" --out "$STEP/inputs" >"$STEP/inputs.json" || {
   cat "$STEP"/inputs/*.stderr >&2 2>/dev/null || true
   exit 1
@@ -135,6 +136,14 @@ for name, expected in pins.items():
 mkdir -p "$STAGE/addons/node-addon-api"
 cp "$API"/*.h "$STAGE/addons/node-addon-api/"
 "$PYTHON" -I -B "$ROOT/runtime/ohos/host/generate-node-version.py" --output "$STAGE/include/dsh_node_version.h"
+# The bundled profile ships beside runtime.zip, not inside it: the archive
+# manifest is byte-validated and refuses paths it does not know. The app copies
+# this directory into its own DSH_HOME on first start.
+if [[ -d "$STEP/inputs/seed/profile" ]]; then
+  cp -R "$STEP/inputs/seed/profile" "$STAGE/seed-profile"
+  printf 'Bundled plugin profile staged (%s files)\n' \
+    "$(find "$STAGE/seed-profile" -type f | wc -l | tr -d ' ')"
+fi
 touch "$STAGE/.ready"
 
 rm -rf "$OUT"

@@ -52,6 +52,7 @@ import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import '../update/update_tiles.dart' show UpdateBadge;
 import 'about_page.dart';
+import 'advanced_env_section.dart';
 import 'appearance/appearance_page.dart';
 import 'background_guide_page.dart';
 import 'diagnostics_page.dart';
@@ -280,6 +281,8 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
+        // 高级权限环境（巨魔 / 越狱）：只有 iOS 有这条原生通道，别处不出现。
+        if (ios) const AdvancedEnvSection(tint: SettingsHues.general),
         SettingsSection(
           title: l10n.hubGroupHosts,
           children: [

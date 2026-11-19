@@ -150,6 +150,17 @@ final class IOSSystemTools: NSObject, PHPickerViewControllerDelegate, CLLocation
     return formatter.date(from: value)
   }
 
+  /// 给用户看的时间。系统的 `Date.formatted(date:time:)` 是 iOS 15 新增，
+  /// 这里用 DateFormatter 等效实现（.medium / .short，跟 .abbreviated / .shortened 对齐）。
+  nonisolated private static func readable(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = .current
+    formatter.timeZone = .current
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .short
+    return formatter.string(from: date)
+  }
+
   nonisolated private static func base64url(_ data: Data) -> String {
     data.base64EncodedString()
       .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
@@ -257,7 +268,7 @@ final class IOSSystemTools: NSObject, PHPickerViewControllerDelegate, CLLocation
     }
     guard let list = target else { throw Failure("没有可用的提醒列表。") }
     var detail = "标题：\(title)\n列表：\(list.title)"
-    if let due { detail += "\n时间：\(due.formatted(date: .abbreviated, time: .shortened))" }
+    if let due { detail += "\n时间：\(Self.readable(due))" }
     if let notes, !notes.isEmpty { detail += "\n备注：\(notes)" }
     try await asked(request, "允许 AI 新建这条提醒？", detail, authorize, current)
     let reminder = EKReminder(eventStore: eventStore)

@@ -22,5 +22,14 @@
   "phonePrivilegedGrantSuiPermission": "Authorize Sui, then grant",
   "phonePrivilegedSuggested": "Suggested",
   "phonePrivilegedRootRiskTitle": "Give DSH Go root access?",
-  "phonePrivilegedRootRiskBody": "Your root manager (Magisk, KernelSU or APatch) will ask you. If you allow it, DSH Go runs its own background service as root. It asks again on its own after a disconnect or restart only with “Keep root channel” on."
+  "phonePrivilegedRootRiskBody": "Your root manager (Magisk, KernelSU or APatch) will ask you. If you allow it, DSH Go runs its own background service as root. It asks again on its own after a disconnect or restart only with “Keep root channel” on.",
+  "keepAliveSection": "Background keep-alive",
+  "keepAliveAudio": "Silent audio",
+  "keepAliveAudioHint": "Loops inaudible audio so the app isn't suspended the moment it backgrounds",
+  "keepAliveLocation": "Location keep-alive",
+  "keepAliveLocationHint": "Continuous location keeps the app awake; accuracy is already minimal",
+  "keepAliveLocationNeedsAlways": "Location permission must be “Always”; “While Using” cannot keep the app alive",
+  "keepAliveFooter": "Not residency: the system still reclaims the process under memory pressure. Uses more battery — enable as needed.",
+  "keepAliveAudioFailed": "Could not start audio keep-alive",
+  "keepAliveLocationFailed": "Could not start location keep-alive; check location permission"
 }

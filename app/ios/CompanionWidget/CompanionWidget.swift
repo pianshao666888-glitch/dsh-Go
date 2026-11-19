@@ -28,6 +28,8 @@ private struct CompanionView: View {
   let entry: CompanionEntry
   @Environment(\.widgetFamily) private var family
   private var chinese: Bool { Locale.preferredLanguages.first?.hasPrefix("zh") == true }
+  /// 系统色 .mint 是 iOS 15 新增，这里用同样的 RGB 常量，iOS 14 也能取到。
+  private var mint: Color { Color(red: 0, green: 0.78, blue: 0.75) }
   private func words(_ en: String, _ zh: String) -> String { chinese ? zh : en }
   private var background: some View {
     LinearGradient(colors: [Color(red: 0.05, green: 0.20, blue: 0.29), Color(red: 0.10, green: 0.36, blue: 0.40)],
@@ -36,7 +38,7 @@ private struct CompanionView: View {
   private var content: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 8) {
-        Image(systemName: "sparkles").font(.title2).foregroundColor(.mint)
+        Image(systemName: "sparkles").font(.title2).foregroundColor(mint)
         VStack(alignment: .leading, spacing: 2) {
           Text(entry.snapshot.name.isEmpty ? words("Companion", "伙伴小屋") : entry.snapshot.name)
             .font(.headline).lineLimit(1)
@@ -49,7 +51,7 @@ private struct CompanionView: View {
       Spacer(minLength: 0)
       Text(entry.snapshot.line.isEmpty ? words("Tap to visit your companion", "点一下，回到伙伴的小屋") : entry.snapshot.line)
         .font(family == .systemSmall ? .caption : .subheadline)
-        .lineLimit(family == .systemSmall ? 3 : 2).privacySensitive()
+        .lineLimit(family == .systemSmall ? 3 : 2).dshPrivacySensitive()
       HStack(spacing: 3) {
         ForEach(0..<3) { index in
           Image(systemName: index < entry.snapshot.bond ? "heart.fill" : "heart")
@@ -66,6 +68,13 @@ private struct CompanionView: View {
     } else {
       content.padding(12).background(background)
     }
+  }
+}
+
+private extension View {
+  /// privacySensitive 是 iOS 15 新增（锁屏时打码）；iOS 14 没有对应修饰符，原样返回。
+  @ViewBuilder func dshPrivacySensitive() -> some View {
+    if #available(iOS 15.0, *) { self.privacySensitive() } else { self }
   }
 }
 

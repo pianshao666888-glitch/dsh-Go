@@ -26,6 +26,10 @@ String installedVersionLabel(WidgetRef ref) {
   return installed.build == null ? installed.name : '${installed.name} (${installed.build})';
 }
 
+/// 交流群：QQ 群的分享页。没装 QQ 时浏览器也能打开，所以照常交给系统。
+const qqGroupUrl =
+    'https://qun.qq.com/universal-share/share?ac=1&authKey=oaXaDZhiv%2FsRSavAEgZccqbE3jCYiR6mxZmSOboVlfiz7h9QkUCqtEV2v8zgZpUB&busi_data=eyJncm91cENvZGUiOiIxNzE0NjE1MDUiLCJ0b2tlbiI6ImxFV1ViNUQ2ZUp5T2RoSUtPVUp3ZVdxaHFDWmtseXRVbmhHK0xRZ2U2TUduclJwWDlFRVJZZHBEV1F1eDlyOXgiLCJ1aW4iOiIzODY3NjMxOTUifQ%3D%3D&data=cwtP871gkZLxbHM7-RMwkC56OHLLMij5SYyOdE4xaGAxvTASBi9VZKGu3rLF4t4ShM3Uu1AMW_I2597XQmM_6w&svctype=4&tempid=h5_group_info';
+
 class AboutPage extends ConsumerWidget {
   const AboutPage({super.key});
 
@@ -87,6 +91,20 @@ class AboutPage extends ConsumerWidget {
             ),
           ],
         ),
+        // 高级功能的署名，和进群的入口。群链接是一个 https 分享页：
+        // 装了 QQ 会拉起 QQ，没装就用浏览器打开；都不行就把地址复制走。
+        SettingsSection(
+          children: [
+            SettingsTile(key: const ValueKey('about-contributor'), title: l10n.hubAboutContributor),
+            SettingsTile(
+              key: const ValueKey('about-qq-group'),
+              title: l10n.hubAboutJoinGroup,
+              subtitle: l10n.hubAboutJoinGroupHint,
+              trailing: Icon(AppIcons.openExternal, size: 18, color: colors.textTertiary),
+              onTap: () => unawaited(_openGroup(context, ref)),
+            ),
+          ],
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
           child: Column(
@@ -122,6 +140,27 @@ class AboutPage extends ConsumerWidget {
           onTap: () => unawaited(_openAuthorLink(context, ref, Uri.parse(url))),
         ),
       );
+
+  /// 「加入交流群」：走 App 统一的链接口（url_launcher 的外部应用模式）。
+  /// 打不开（没装 QQ、也没有浏览器）时把地址复制走并说一声，不让点击变成没反应。
+  Future<void> _openGroup(BuildContext context, WidgetRef ref) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    try {
+      if (await ref.read(starLinkOpenerProvider)(Uri.parse(qqGroupUrl))) return;
+    } catch (_) {
+      // url_launcher 抛异常也落到复制：一次点击总要有结果。
+    }
+    var copied = true;
+    try {
+      await Clipboard.setData(ClipboardData(text: qqGroupUrl));
+    } catch (_) {
+      copied = false;
+    }
+    if (messenger?.mounted ?? false) {
+      messenger!.showSnackBar(SnackBar(content: Text(copied ? l10n.hubAboutGroupCopied : l10n.hubAboutGroupOpenFailed)));
+    }
+  }
 
   Future<void> _openAuthorLink(BuildContext context, WidgetRef ref, Uri url) async {
     final l10n = context.l10n;

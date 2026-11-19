@@ -11,9 +11,14 @@ final class PetOverlayVideoView: UIView {
 
 /// Public AVKit sample-buffer PiP only. There is no private controlsStyle,
 /// transparent/offscreen player, silent-audio loop, or location keepalive.
+///
+/// 采样缓冲画中画（`AVPictureInPictureController.ContentSource` 与
+/// `AVPictureInPictureSampleBufferPlaybackDelegate`）是 iOS 15 新增，所以整个类只在
+/// iOS 15 起可用；iOS 14 由 `PetOverlayPipUnavailable` 顶上，宠物叠层按不支持降级。
 @MainActor
+@available(iOS 15.0, *)
 final class PetOverlayPictureInPicture: NSObject,
-  AVPictureInPictureControllerDelegate, AVPictureInPictureSampleBufferPlaybackDelegate {
+  AVPictureInPictureControllerDelegate, AVPictureInPictureSampleBufferPlaybackDelegate, PetOverlayPipControlling {
   let sourceView = PetOverlayVideoView()
   var onChange: (() -> Void)?
   var onRecoveryPossible: (() -> Void)?
@@ -202,6 +207,9 @@ final class PetOverlayPictureInPicture: NSObject,
     return true
   }
 
+  /// Keeps the animated video out of system captures during phone control.
+  func setCaptureHidden(_ hidden: Bool) { sourceView.displayLayer.preventsCapture = hidden }
+
   /// Shared by playback and the Apple-SDK capture fixture so that the real
   /// BGRA sample-buffer path, including row orientation, is testable.
   static func sampleBuffer(from image: CGImage) throws -> CMSampleBuffer {
@@ -333,5 +341,90 @@ final class PetOverlayPictureInPicture: NSObject,
     skipByInterval skipInterval: CMTime, completion completionHandler: @escaping () -> Void) {
     // A live task has no seekable timeline; linear playback disables skipping.
     completionHandler()
+  }
+}
+
+/// 宠物画中画的控制面。采样缓冲画中画只在 iOS 15 起存在，所以调用方（IOSPetOverlay）
+/// 只依赖这一层：iOS 15 拿到真正的实现，iOS 14 拿到不支持的空实现，宠物叠层按不支持降级。
+@MainActor
+protocol PetOverlayPipControlling: AnyObject {
+  var sourceView: UIView { get }
+  var onChange: (() -> Void)? { get set }
+  var onRecoveryPossible: (() -> Void)? { get set }
+  var onFailure: ((String) -> Void)? { get set }
+  var onUnexpectedStop: (() -> Void)? { get set }
+  var onSetPlaying: ((Bool) -> Bool)? { get set }
+  var onRestore: ((@escaping (Bool) -> Void) -> Void)? { get set }
+  var onRenderSize: ((CGSize) -> Void)? { get set }
+
+  var supported: Bool { get }
+  var possible: Bool { get }
+  var active: Bool { get }
+  var suspended: Bool { get }
+  var keepingAlive: Bool { get }
+  var inlineVisible: Bool { get }
+  var audioConfigured: Bool { get }
+  var audioMayPrepare: Bool { get }
+  var audioPreparationBlocker: String? { get }
+
+  func retryAfterForeground()
+  func retryFromUser()
+  func prepareInline() throws
+  func startFromUser() -> Bool
+  func setPaused(_ paused: Bool)
+  func stop(keepInline: Bool)
+  func enqueue(_ image: CGImage) throws -> Bool
+  func setCaptureHidden(_ hidden: Bool)
+}
+
+@MainActor
+extension PetOverlayPipControlling {
+  /// 平时收起画中画就是“不带内联源地停”，跟真实现的默认参数一致。
+  func stop() { stop(keepInline: false) }
+}
+
+/// iOS 14 的占位实现：系统没有采样缓冲画中画，这里如实报告不支持，
+/// 让状态查询拿到 `overlay_unsupported`，界面显示“这台设备用不了宠物叠层”。
+@MainActor
+final class PetOverlayPipUnavailable: PetOverlayPipControlling {
+  let sourceView = UIView()
+  var onChange: (() -> Void)?
+  var onRecoveryPossible: (() -> Void)?
+  var onFailure: ((String) -> Void)?
+  var onUnexpectedStop: (() -> Void)?
+  var onSetPlaying: ((Bool) -> Bool)?
+  var onRestore: ((@escaping (Bool) -> Void) -> Void)?
+  var onRenderSize: ((CGSize) -> Void)?
+
+  var supported: Bool { false }
+  var possible: Bool { false }
+  var active: Bool { false }
+  var suspended: Bool { false }
+  var keepingAlive: Bool { false }
+  var inlineVisible: Bool { false }
+  var audioConfigured: Bool { false }
+  var audioMayPrepare: Bool { false }
+  var audioPreparationBlocker: String? { "overlay_unsupported" }
+
+  func retryAfterForeground() {}
+  func retryFromUser() {}
+  func prepareInline() throws { throw PetOverlayPackFailure("overlay_unsupported") }
+  func startFromUser() -> Bool { false }
+  func setPaused(_ paused: Bool) {}
+  func stop(keepInline: Bool) {}
+  func enqueue(_ image: CGImage) throws -> Bool { false }
+  func setCaptureHidden(_ hidden: Bool) {}
+}
+
+@MainActor
+enum PetOverlayPipFactory {
+  /// 按系统版本挑实现：iOS 15 起才装配真正的画中画控制器。
+  ///
+  /// [iOS14] 采样缓冲画中画（ContentSource + AVSampleBufferDisplayLayer）是 iOS 15 才有的能力，
+  /// 公开 API 里没有等价物，降不到 14：这里换成能编译通过的空实现，
+  /// 叠层状态如实返回 overlay_unsupported，界面按“这台设备用不了”显示。
+  static func make() -> any PetOverlayPipControlling {
+    if #available(iOS 15.0, *) { return PetOverlayPictureInPicture() }
+    return PetOverlayPipUnavailable()
   }
 }

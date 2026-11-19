@@ -12,6 +12,12 @@ import shutil
 import stat
 import subprocess
 
+# dsh-purge is not on npm; it ships as a GitHub release tarball.
+PURGE_SPEC = ('https://github.com/kingcharleslzy-ai/dsh-purge/releases/download/'
+              'v1.7.20/dsh-purge-community-1.7.20.tgz')
+SEED_LIANGSHEN_VERSION = '0.4.16'
+SEED_DSH_VERSION = '0.2.2-rc.1'
+
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -64,6 +70,8 @@ def main():
     parser.add_argument('--cache', type=Path, required=True)
     parser.add_argument('--offline', action='store_true')
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--seed-profile', action='store_true',
+                        help='also build ~/.dsh/profiles/web with bundled plugins (dsh-purge + liangshen)')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[3]
     config = json.loads(Path(__file__).with_name('composition.json').read_text())
@@ -107,6 +115,57 @@ def main():
     for filename in ('index.cjs', 'package.json'):
         shutil.copyfile(repo / 'runtime/ohos/native/hap-loader' / filename, helper / filename)
     shutil.copyfile(repo / 'LICENSE', helper / 'LICENSE')
+    # Bundled plugin profile. The guest's DSH_HOME is an app-owned directory created
+    # at first start, not part of this runtime image, so the profile ships here as a
+    # seed the app copies in. Both plugins are plain JavaScript, so the install done on
+    # this host is valid on the phone.
+    if args.seed_profile:
+        seed = output / 'seed' / 'profile'
+        seed.mkdir(parents=True)
+        (seed / 'package.json').write_text(json.dumps({
+            'name': 'dsh-profile-web',
+            'private': True,
+            'dependencies': {
+                'dsh-purge-community': PURGE_SPEC,
+                # 梁神：极简 persona + 工具收拢成 run_code，省 context。
+                # 0.4.16 是最后一代声明 >=0.2.2-rc.1 的版本，0.4.19 起要 rc.3。
+                '@linxin666/dsh-liangshen': SEED_LIANGSHEN_VERSION,
+            },
+            'dsh': {'profile': {'bundles': [
+                '@deepseek-ai/dsh-base',
+                '@deepseek-ai/dsh-web-app',
+                'dsh-purge-community',
+                '@linxin666/dsh-liangshen',
+            ]}},
+        }, indent=2) + '\n')
+        # 引擎会拒绝 peer 范围不满足的插件；把要用的版本显式豁免掉。
+        (seed / 'compatibility.json').write_text(json.dumps({
+            '@linxin666/dsh-liangshen@' + SEED_LIANGSHEN_VERSION: [SEED_DSH_VERSION],
+            'dsh-purge-community@1.7.20': [SEED_DSH_VERSION],
+        }, indent=2) + '\n')
+        (seed / 'pnpm-workspace.yaml').write_text(
+            'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n')
+        # config['installation']['arguments'] starts with `ci`, which refuses a
+        # directory without a package-lock.json. The seed profile is composed
+        # here, so it uses `install` with the same flags minus the lockfile-only ones.
+        # --omit=peer is essential: both plugins peer-depend on the whole
+        # @deepseek-ai tree, which the runtime image already ships. Without it the
+        # seed pulls 336 packages / 788 MB; with it the seed is ~9 MB.
+        seed_args = [a for a in config['installation']['arguments']
+                     if a not in ('ci', '--install-links=true', '--include=dev')]
+        run('seed-install', [str(args.npm), 'install', *seed_args, '--omit=peer',
+                             '--cache', str(args.cache)], seed)
+        # Repair dsh-purge against the runtime it now targets: its own patch table still
+        # points at modules the engine moved, so #35/#91 silently stay "not applicable".
+        fixer = repo / 'runtime' / 'presets' / 'purge-fix.py'
+        purge_dir = seed / 'node_modules' / 'dsh-purge-community'
+        if fixer.is_file() and purge_dir.is_dir():
+            run('seed-repair', ['python3', '-I', '-B', str(fixer), '--plugin', str(purge_dir)], seed)
+        receipt_seed = {str(p.relative_to(seed)): True for p in seed.rglob('*') if p.is_file()}
+        (output / 'seed' / 'profile.json').write_text(json.dumps(
+            {'files': len(receipt_seed), 'purgeSpec': PURGE_SPEC}, indent=2) + '\n')
+        print(json.dumps({'seedProfile': len(receipt_seed)}))
+
     receipt = {'schema': 1, 'nodeVersion': config['nodeVersion'], 'installation': config['installation'],
                'files': {name: prefix_files(output / name) for name in ('dsh', 'process')}}
     (output / 'prepared-inputs.json').write_bytes(encoded(receipt))

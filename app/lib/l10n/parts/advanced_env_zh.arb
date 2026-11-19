@@ -1,0 +1,8 @@
+{
+  "advancedEnvTitle": "高级权限环境",
+  "advancedEnvDetecting": "正在检测…",
+  "advancedEnvUnsupported": "当前设备未高级权限 · 可能无法使用系统读写",
+  "advancedEnvShell": "可执行 shell",
+  "advancedEnvRefresh": "重新检测",
+  "advancedEnvFooter": "打开设置时自动检测一次。换了巨魔或越狱环境后点「重新检测」。"
+}

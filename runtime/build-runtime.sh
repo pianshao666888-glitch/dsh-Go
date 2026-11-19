@@ -456,6 +456,47 @@ PYEOF
   local pnpm_prefix="$work/pnpm-prefix"
   install_pnpm "$npm_cpu" "$pnpm_prefix"
 
+  # -- bundled plugin profile: pre-populate the guest's ~/.dsh --
+  # The guest's DSH_HOME is /root/.dsh (see the launcher env in overlay_entries),
+  # so a profile written here is what the engine finds on first launch. Without
+  # this the app starts with an empty profile and the user has to install
+  # plugins by hand.
+  local preset_home="$work/preset-home"
+  rm -rf "$preset_home"
+  if [[ "${DSH_BUNDLED_PLUGINS:-1}" == 1 ]]; then
+    local profile="$preset_home/profiles/web"
+    mkdir -p "$profile"
+    log "bundling plugin profile into ~/.dsh/profiles/web"
+    "${PY[@]}" bundle-profile --out "$profile" --dsh-version "$DSH_VERSION" >&2 \
+      || die "cannot prepare bundled profile"
+    if [[ "${DSH_BUNDLED_PLUGINS_INSTALL:-1}" == 1 ]]; then
+      local npmbin; npmbin="$(host_npm)"
+      ( cd "$profile" && PATH="$npmbin:$PATH" npm install \
+          --no-audit --no-fund --loglevel=error --ignore-scripts ) >&2 \
+        || log "warning: bundled profile npm install failed; profile ships without node_modules"
+
+      # Repair dsh-purge against this DSH version: the plugin's own patch table
+      # still targets modules the runtime moved. Without this the bundled plugin
+      # reports 12 patches as "not applicable" and #35 silently never applies.
+      local purge_dir="$profile/node_modules/dsh-purge-community"
+      if [[ -d "$purge_dir" ]]; then
+        "${PY[@]}" "$HERE/presets/purge-fix.py" --plugin "$purge_dir" >&2 \
+          || log "warning: dsh-purge repair failed; plugin ships unpatched"
+        # Apply the plugin's host patch layer into the dsh prefix that ships in
+        # this rootfs, so the app boots with the patches already written.
+        if [[ "${DSH_BUNDLED_PURGE_APPLY:-1}" == 1 && -x "$purge_dir/bin/community.js" ]]; then
+          local hostnode; hostnode="$(host_npm)"
+          ( cd "$purge_dir" && \
+            DSH_BASE="$prefix/node_modules/@deepseek-ai" \
+            DSH_HOME="$preset_home" \
+            PATH="$hostnode:$PATH" \
+            node bin/community.js apply ) >&2 \
+            || log "warning: dsh-purge host patch application failed"
+        fi
+      fi
+    fi
+  fi
+
   # -- runtimeVersion: hash of every input + the recipe itself --
   local lockfile="$LOCKS/dsh-$DSH_VERSION/package-lock.json"
   local pnpm_lockfile="$LOCKS/pnpm-$PNPM_VERSION/package-lock.json"
@@ -485,6 +526,7 @@ PYEOF
   log "assembling rootfs ($COMPRESS)"
   "${PY[@]}" assemble --abi "$abi" --base "$base" --node "$node" --dsh-prefix "$prefix" --pnpm-prefix "$pnpm_prefix" \
     "${archive_args[@]}" --report "$out/build-report.json" --runtime-info "$runtime_info" \
+    --preset-home "$preset_home" \
     --compress "$COMPRESS" --xz-preset "$XZ_PRESET" --threads "$XZ_THREADS" --epoch "$SOURCE_DATE_EPOCH" "${prune[@]}" \
     "${extra_debs[@]/#/--deb=}" --python "$python" --bridge "$bridge"
 

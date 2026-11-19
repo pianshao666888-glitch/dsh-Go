@@ -278,37 +278,45 @@ final class PetOverlayPictureInPicture: NSObject,
     onFailure?(code)
   }
 
-  func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
-    starting = true
-    expectedStop = false
-    restoring = false
-    onChange?()
+  nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    MainActor.assumeIsolated {
+      starting = true
+      expectedStop = false
+      restoring = false
+      onChange?()
+    }
   }
 
-  func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
-    starting = false
-    if !requested { stop(); return }
-    onChange?()
+  nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+    MainActor.assumeIsolated {
+      starting = false
+      if !requested { stop(); return }
+      onChange?()
+    }
   }
 
-  func pictureInPictureController(_ controller: AVPictureInPictureController,
+  nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController,
     failedToStartPictureInPictureWithError error: Error) {
-    starting = false
-    // Error descriptions may contain unrelated media/user content. Export only
-    // this stable code and keep the original exception out of logs/diagnostics.
-    fail("overlay_pip_start_failed")
+    MainActor.assumeIsolated {
+      starting = false
+      // Error descriptions may contain unrelated media/user content. Export only
+      // this stable code and keep the original exception out of logs/diagnostics.
+      fail("overlay_pip_start_failed")
+    }
   }
 
-  func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
-    starting = false
-    let stoppedAsRequested = expectedStop
-    let userClosed = !expectedStop && !restoring
-    expectedStop = false
-    restoring = false
-    if !requested || userClosed { requested = false; releaseAudio() }
-    if userClosed { onUnexpectedStop?() }
-    onChange?()
-    if stoppedAsRequested && audioMayPrepare { onRecoveryPossible?() }
+  nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+    MainActor.assumeIsolated {
+      starting = false
+      let stoppedAsRequested = expectedStop
+      let userClosed = !expectedStop && !restoring
+      expectedStop = false
+      restoring = false
+      if !requested || userClosed { requested = false; releaseAudio() }
+      if userClosed { onUnexpectedStop?() }
+      onChange?()
+      if stoppedAsRequested && audioMayPrepare { onRecoveryPossible?() }
+    }
   }
 
   func pictureInPictureController(_ controller: AVPictureInPictureController,
@@ -317,18 +325,20 @@ final class PetOverlayPictureInPicture: NSObject,
     if let onRestore { onRestore(completionHandler) } else { completionHandler(false) }
   }
 
-  func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
-    playbackPaused = !(onSetPlaying?(playing) ?? playing)
-    controller.invalidatePlaybackState()
-    onChange?()
+  nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController, setPlaying playing: Bool) {
+    MainActor.assumeIsolated {
+      playbackPaused = !(onSetPlaying?(playing) ?? playing)
+      controller.invalidatePlaybackState()
+      onChange?()
+    }
   }
 
-  func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
+  nonisolated func pictureInPictureControllerTimeRangeForPlayback(_ controller: AVPictureInPictureController) -> CMTimeRange {
     CMTimeRange(start: .zero, duration: .positiveInfinity)
   }
 
-  func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
-    playbackPaused
+  nonisolated func pictureInPictureControllerIsPlaybackPaused(_ controller: AVPictureInPictureController) -> Bool {
+    MainActor.assumeIsolated { playbackPaused }
   }
 
   func pictureInPictureController(_ controller: AVPictureInPictureController,

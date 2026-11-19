@@ -1433,9 +1433,9 @@ final class AdvancedEnvironmentDetector {
     /// 读自身签名里的某个 entitlement 的布尔值；拿不到一律 false
     private static func entitlementIsTrue(_ name: String) -> Bool {
         guard let fns = securityFunctions(), let task = fns.create(nil) else { return false }
-        defer { CFRelease(task) }
+        // Swift 里 CF 对象由 ARC 管理，不需要 CFRelease
         guard let value = fns.copy(task, name as CFString, nil) else { return false }
-        defer { CFRelease(value) }
+        // Swift 里 CF 对象由 ARC 管理，不需要 CFRelease
         // CFBoolean 到 Swift 会桥成 NSNumber
         if let number = value as? NSNumber { return number.boolValue }
         if let text = value as? String { return text == "true" || text == "1" }
@@ -1499,10 +1499,17 @@ final class AdvancedEnvironmentDetector {
     // MARK: - 进程能力
 
     /// fork(2)：iOS 沙盒下恒返回 -1/EPERM。能成功就说明沙盒确实没了。
+    ///
+    /// fork 在 iOS SDK 里被标成 unavailable（Apple 要求用线程或 posix_spawn），
+    /// 所以经 dlsym 从 libsystem_c 取符号绕过编译期检查——越狱环境下它确实存在。
     /// 子进程里不碰 Swift 运行时（ARC/栈展开都可能崩），直接 _exit。
     private static func canFork() -> Bool {
+        typealias ForkFn = @convention(c) () -> pid_t
+        guard let handle = dlopen(nil, RTLD_NOW),
+              let sym = dlsym(handle, "fork") else { return false }
+        let forkPtr = unsafeBitCast(sym, to: ForkFn.self)
         errno = 0
-        let pid = fork()
+        let pid = forkPtr()
         if pid == 0 {
             _exit(0)
         }
@@ -1517,8 +1524,13 @@ final class AdvancedEnvironmentDetector {
     /// posix_spawn 一个 shell 跑 `exit 0`：能起来并回收就算「真能执行」。
     /// 沙盒下 posix_spawn 会回 EPERM；shell 不存在回 ENOENT，两种都算 false。
     private static func spawnProbe(shell: String, timeout: TimeInterval = 1.0) -> Bool {
-        // posix_spawn 要 NULL 结尾的 C 数组，先自己 strdup，结束后释放
-        var argv: [UnsafeMutablePointer<CChar>?] = [shell, "-c", "exit 0"].map { strdup($0) }
+        // posix_spawn 要 NULL 结尾的 C 数组，先自己 strdup，结束后释放。
+        // 用循环构造而不是 map：map 推导出的元素类型是隐式解包 Optional，
+        // 和这里声明的 [UnsafeMutablePointer<CChar>?] 不一致。
+        var argv: [UnsafeMutablePointer<CChar>?] = []
+        for piece in [shell, "-c", "exit 0"] {
+            argv.append(strdup(piece))
+        }
         argv.append(nil)
         defer {
             for pointer in argv {
@@ -1527,7 +1539,7 @@ final class AdvancedEnvironmentDetector {
         }
 
         // 子进程的输出丢进 /dev/null：探针不该在 App 的 stdout 上留东西
-        var actions = posix_spawn_file_actions_t()
+        var actions: posix_spawn_file_actions_t? = nil
         posix_spawn_file_actions_init(&actions)
         posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
         posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_WRONLY, 0)
@@ -1855,16 +1867,22 @@ final class AdvancedEnvironmentChannel: NSObject {
 /// 执行结果直接回到 agent。
 ///
 /// 没有高级权限时所有入口返回 nil，Dart 侧据此判定「不可用」。
-final class SystemShellChannel: NSObject, FlutterPlugin {
-  static func register(with registrar: any FlutterPluginRegistrar) {
-    let channel = FlutterMethodChannel(name: "dshgo/system_shell", binaryMessenger: registrar.messenger())
-    registrar.addMethodCallDelegate(SystemShellChannel(), channel: channel)
+final class SystemShellChannel: NSObject {
+
+  private let methods: FlutterMethodChannel
+
+  init(messenger: any FlutterBinaryMessenger) {
+    methods = FlutterMethodChannel(name: "dshgo/system_shell", binaryMessenger: messenger)
+    super.init()
+    methods.setMethodCallHandler { [weak self] call, result in
+      self?.handle(call, result: result)
+    }
   }
 
   /// 输出上限：超过就保留头尾，中间标注截断。
   private static let maxBytesCap = 512 * 1024
 
-  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+  private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args = call.arguments as? [String: Any] ?? [:]
     switch call.method {
     case "shellPath":
@@ -1956,20 +1974,25 @@ final class SystemShellChannel: NSObject, FlutterPlugin {
     posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETPGROUP))
     posix_spawnattr_setpgroup(&attr, 0)
 
-    var argv: [UnsafeMutablePointer<CChar>?] = [strdup(shell), strdup("-c"), strdup(command), nil]
+    var argv: [UnsafeMutablePointer<CChar>?] = []
+    for piece in [shell, "-c", command] {
+      argv.append(strdup(piece))
+    }
+    argv.append(nil)
     defer { argv.forEach { if let p = $0 { free(p) } } }
 
     // 环境：继承当前 + 调用方覆盖。agent 需要 PATH 才能找到常用命令。
-    var environ: [UnsafeMutablePointer<CChar>?] = []
+    // 变量名不能叫 environ：那是 C 的全局符号，会在 posix_spawn 处被遮蔽。
+    var envp: [UnsafeMutablePointer<CChar>?] = []
     var envMap = ProcessInfo.processInfo.environment
     envMap["PATH"] = envMap["PATH"] ?? "/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin"
     if let extra = env { for (k, v) in extra { envMap[k] = v } }
-    for (k, v) in envMap { environ.append(strdup("\(k)=\(v)")) }
-    environ.append(nil)
-    defer { environ.forEach { if let p = $0 { free(p) } } }
+    for (k, v) in envMap { envp.append(strdup("\(k)=\(v)")) }
+    envp.append(nil)
+    defer { envp.forEach { if let p = $0 { free(p) } } }
 
     var pid: pid_t = 0
-    let spawnResult = posix_spawn(&pid, shell, &fileActions, &attr, argv, environ)
+    let spawnResult = posix_spawn(&pid, shell, &fileActions, &attr, argv, envp)
     close(writeFd)
     guard spawnResult == 0, pid > 0 else {
       close(readFd)

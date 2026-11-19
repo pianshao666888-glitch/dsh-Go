@@ -232,7 +232,7 @@ def main():
         env = os.environ.copy()
         env['CC'] = shutil.which('clang')
         if apple:
-            target = 'arm64-apple-ios14.0' + ('-simulator' if sdk == 'iphonesimulator' else '')
+            target = 'arm64-apple-ios15.0' + ('-simulator' if sdk == 'iphonesimulator' else '')
             compiler = output(['xcrun', '--sdk', sdk, '--find', 'clang'])
             archiver = output(['xcrun', '--sdk', sdk, '--find', 'ar'])
             cross = work / 'apple.ini'
@@ -261,7 +261,7 @@ def main():
             shutil.copy2(build / 'DshGuest.dylib', framework / 'DshGuest')
             info = dict(CFBundleExecutable='DshGuest', CFBundleIdentifier='io.github.ccch1mneyyy.dshgo.guest',
                 CFBundleName='DshGuest', CFBundlePackageType='FMWK', CFBundleShortVersionString='1.0',
-                CFBundleVersion='1', MinimumOSVersion='14.0',
+                CFBundleVersion='1', MinimumOSVersion='15.0',
                 CFBundleSupportedPlatforms=['iPhoneOS' if sdk == 'iphoneos' else 'iPhoneSimulator'])
             (framework / 'Info.plist').write_bytes(plistlib.dumps(info))
             for name in ('LICENSE.txt', 'SOURCE.txt'):

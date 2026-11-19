@@ -49,6 +49,7 @@ final class DshPlugin: NSObject, FlutterPlugin, FlutterSceneLifeCycleDelegate {
       PerformanceChannel(messenger: messenger),
       AdvancedEnvironmentChannel(messenger: messenger),
       SystemShellChannel(messenger: messenger),
+      KeepAliveChannel(messenger: messenger),
       DiagnosticsChannel(messenger: messenger),
       UsageChannel(messenger: messenger),
       LaunchChannel(messenger: messenger),
@@ -1063,15 +1064,22 @@ extension BackgroundKeepAlive: CLLocationManagerDelegate {
 //   ... invokeMethod('setAll', {'audio': true, 'location': true})
 
 @objc(KeepAliveChannel)
-final class KeepAliveChannel: NSObject, FlutterPlugin {
+final class KeepAliveChannel: NSObject {
 
-    static func register(with registrar: FlutterPluginRegistrar) {
-        let channel = FlutterMethodChannel(name: "dshgo/keepalive",
-                                           binaryMessenger: registrar.messenger())
-        registrar.addMethodCallDelegate(KeepAliveChannel(), channel: channel)
+    private let methods: FlutterMethodChannel
+
+    /// 与其它通道一致的构造方式。之前写成 FlutterPlugin + static register(with:)，
+    /// 但 DshPlugin 的 keep 数组只收 init(messenger:) 形态，所以从未被注册——
+    /// Dart 侧一直拿 MissingPluginException，设置页的后台保活开关点了没反应。
+    init(messenger: any FlutterBinaryMessenger) {
+        methods = FlutterMethodChannel(name: "dshgo/keepalive", binaryMessenger: messenger)
+        super.init()
+        methods.setMethodCallHandler { [weak self] call, result in
+            self?.handle(call, result: result)
+        }
     }
 
-    func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let ka = BackgroundKeepAlive.shared
         let args = call.arguments as? [String: Any] ?? [:]
         switch call.method {

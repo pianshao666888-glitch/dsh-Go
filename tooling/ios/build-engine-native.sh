@@ -14,7 +14,7 @@ OUT="${2:?output directory}"
 shift 2
 [[ -f "$ENGINE/.ready" ]] || { printf 'Run tooling/ios/prepare-engine.sh first\n' >&2; exit 1; }
 
-MIN_IOS=14.0
+MIN_IOS=15.0
 case "$SDK" in
   iphoneos) TARGET="arm64-apple-ios$MIN_IOS"; SLICE=ios-arm64 ;;
   iphonesimulator) TARGET="arm64-apple-ios$MIN_IOS-simulator"; SLICE=ios-arm64-simulator ;;

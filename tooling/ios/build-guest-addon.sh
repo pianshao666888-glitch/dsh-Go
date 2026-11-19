@@ -8,8 +8,8 @@ SDK="${1:?iphoneos or iphonesimulator}"
 OUT="${2:?output directory}"
 [[ $# == 2 ]] || { printf 'usage: build-guest-addon.sh SDK OUTPUT_DIR\n' >&2; exit 2; }
 case "$SDK" in
-  iphoneos) TARGET=arm64-apple-ios14.0; SLICE=ios-arm64; PLATFORM=iPhoneOS ;;
-  iphonesimulator) TARGET=arm64-apple-ios14.0-simulator; SLICE=ios-arm64-simulator; PLATFORM=iPhoneSimulator ;;
+  iphoneos) TARGET=arm64-apple-ios15.0; SLICE=ios-arm64; PLATFORM=iPhoneOS ;;
+  iphonesimulator) TARGET=arm64-apple-ios15.0-simulator; SLICE=ios-arm64-simulator; PLATFORM=iPhoneSimulator ;;
   *) printf 'Unsupported SDK: %s\n' "$SDK" >&2; exit 2 ;;
 esac
 ENGINE="$ROOT/app/ios/Engine"
@@ -44,7 +44,7 @@ pathlib.Path(sys.argv[1]).write_bytes(plistlib.dumps(dict(
     CFBundleIdentifier='io.github.ccch1mneyyy.dshgo.guestbridge',
     CFBundleName='DshGuestBridge', CFBundlePackageType='FMWK',
     CFBundleShortVersionString='1.0', CFBundleVersion='1',
-    MinimumOSVersion='14.0', CFBundleSupportedPlatforms=[sys.argv[2]])))
+    MinimumOSVersion='15.0', CFBundleSupportedPlatforms=[sys.argv[2]])))
 PY
 rm -rf "$FRAMEWORK"
 mv "$WORK/DshGuestBridge.framework" "$FRAMEWORK"

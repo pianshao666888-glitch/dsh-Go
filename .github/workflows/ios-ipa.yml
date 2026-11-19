@@ -117,7 +117,7 @@ jobs:
           echo "目标: $APP"
           MINOS=14.0
           SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
-          echo "SDK $SDK，降到 $MINOS"
+          echo "SDK ${SDK}，降到 $MINOS"
 
           # dyld 看的是 Mach-O 的 LC_BUILD_VERSION minos，不是 Info.plist。
           # 两层都改，否则装得上但一启动就被拒。
